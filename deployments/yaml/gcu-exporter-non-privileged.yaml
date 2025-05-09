@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gcu-exporter-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: gcu-exporter-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: gcu-exporter-ds
+    spec:
+      hostNetwork: true
+      containers:
+        - name: gcu-exporter
+          image: artifact.enflame.cn/enflame_docker_images/enflame/gcu-exporter:latest
+          imagePullPolicy: IfNotPresent #Always
+          env:
+             - name: ENFLAME_VISIBLE_DEVICES
+               value: all
+          ports:
+            - name: exporterport
+              protocol: TCP
+              containerPort: 9400
+              hostPort: 9400
+          resources:
+            requests:
+              memory: 100Mi
+              cpu: 100m
+            limits:
+              memory: 2000Mi
+              cpu: 2000m
+          volumeMounts:
+            - name: syspath
+              mountPath: /sys
+            - name: localtime
+              mountPath: /etc/localtime
+            - name: varlock
+              mountPath: /var/lock
+            - name: pod-resources
+              mountPath: /var/lib/kubelet/pod-resources
+            - name: libefml
+              mountPath: /usr/lib/libefml.so
+            - name: libefml-real
+              mountPath: /usr/local/efsmi
+      volumes:
+        - name: syspath
+          hostPath:
+            path: /sys
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: varlock
+          hostPath:
+            path: /var/lock
+        - name: pod-resources
+          hostPath:
+            path: /var/lib/kubelet/pod-resources
+        - name: libefml
+          hostPath:
+            path: /usr/lib/libefml.so
+        - name: libefml-real
+          hostPath:
+            path: /usr/local/efsmi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gcu-exporter-ds
+  name: gcu-exporter-service
+  namespace: kube-system
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9400"
+spec:
+  selector:
+    name: gcu-exporter-ds
+  ports:
+    - name: exporterport
+      port: 9400
+      targetPort: 9400
+  type: NodePort
