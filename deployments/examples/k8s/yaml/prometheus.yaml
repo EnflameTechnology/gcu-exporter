@@ -1,0 +1,243 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""] # "" indicates the core API group
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - watch
+      - list
+  - nonResourceURLs: ["/metrics"]
+    verbs:
+      - get
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: enflame
+  labels:
+    app: prometheus
+    
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: enflame
+roleRef:
+  kind: ClusterRole
+  name: prometheus
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: enflame
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |-
+    # global config
+    global:
+      scrape_interval:     15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+      evaluation_interval: 60s # Evaluate rules every 15 seconds. The default is every 1 minute.
+      # scrape_timeout is set to the global default (10s).
+
+    # Alertmanager configuration
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+    # Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+    rule_files:
+      # - "first_rules.yml"
+      # - "second_rules.yml"
+
+    # A scrape configuration containing exactly one endpoint to scrape:
+    # Here it's Prometheus itself.
+    scrape_configs:
+      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+      - job_name: 'prometheus'
+
+        # metrics_path defaults to '/metrics'
+        metrics_path: '/metrics'
+
+        # scheme defaults to 'http'.
+
+        static_configs:
+          - targets:
+              - 'localhost:9090'
+             # - 'prometheus-service.enflame:9090'
+
+      - job_name: 'grafana'
+        static_configs:
+          - targets:
+              - 'localhost:3000'
+             # - 'grafana-service.enflame:3000'
+
+      - job_name: 'gcu-exporter'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets:
+              - 'localhost:9400'
+             # - 'gcu-exporter-service.enflame:9400'
+
+      - job_name: 'node-exporter'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets:
+              - 'localhost:9100'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: enflame
+  labels:
+    app: prometheus
+#data:
+#  cpu-usage.rule: |
+#    groups:
+#      - name: NodeCPUUsage
+#        rules:
+#          - alert: NodeCPUUsage
+#            expr: (100 - (avg by (instance) (irate(node_cpu{name="gcu-exporter",mode="idle"}[5m])) * 100)) > 75
+#            for: 2m
+#            labels:
+#              severity: "page"
+#            annotations:
+#              summary: "{{$labels.instance}}: High CPU usage detected"
+#              description: "{{$labels.instance}}: CPU usage is above 75% (current value is: {{ $value }})"
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: enflame
+  name: "prometheus-data-pv"
+  labels:
+    name: prometheus-data-pv
+    release: stable
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  hostPath:
+     path: /data/prometheus
+#  nfs:
+#    path: /data/prometheus
+#    server: 192.168.1.1
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data-pvc
+  namespace: enflame
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      name: prometheus-data-pv
+      release: stable
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: prometheus
+  name: prometheus
+  namespace: enflame
+spec:
+  replicas: 1
+  revisionHistoryLimit: 20
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 0
+      hostNetwork: true
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /prometheus
+              name: prometheus-data-volume
+            - mountPath: /etc/prometheus/prometheus.yml
+              name: prometheus-conf-volume
+              subPath: prometheus.yml
+            - mountPath: /etc/prometheus/rules
+              name: prometheus-rules-volume
+          ports:
+            - containerPort: 9090
+              protocol: TCP
+      volumes:
+        - name: prometheus-data-volume
+          persistentVolumeClaim:
+            claimName: prometheus-data-pvc
+        - name: prometheus-conf-volume
+          configMap:
+            name: prometheus-config
+        - name: prometheus-rules-volume
+          configMap:
+            name: prometheus-rules
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+  labels:
+    app: prometheus
+  name: prometheus-service
+  namespace: enflame
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+  type: NodePort
