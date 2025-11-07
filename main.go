@@ -169,6 +169,10 @@ func main() {
 			"web.max-requests",
 			"Maximum number of parallel scrape requests. Use 0 to disable.",
 		).Default("40").Int()
+		eventTimeout = kingpin.Flag(
+			"event.timeout",
+			"set timeout of get event, use -1 never timeout, use unit ms",
+		).Default("0").Int()
 		disableDefaultCollectors = kingpin.Flag(
 			"collector.disable-defaults",
 			"Set all collectors to disabled by default.",
@@ -181,12 +185,13 @@ func main() {
 
 	if err := eflib.Init(true); err != nil {
 		fmt.Printf("Couldn't initialize efml: %v. Make sure EFML is in the shared library search path, please mount EFML Lib from host, for details, read user guide", err)
+		os.Exit(1)
 	}
 
 	runtime.GOMAXPROCS(1)
 	go func() {
 		for {
-			event, err := eflib.GetEventInfo(5)
+			event, err := eflib.GetEventInfo(*eventTimeout)
 			if err != nil {
 				time.Sleep(5 * time.Second)
 				continue
@@ -205,7 +210,6 @@ func main() {
 			case 11: //restart done
 				break
 			}
-			time.Sleep(5 * time.Millisecond)
 
 		}
 	}()

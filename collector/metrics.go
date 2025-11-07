@@ -7,6 +7,8 @@ import (
 	"go-eflib"
 	"go-eflib/efml"
 	"strconv"
+	"os"
+	"sync/atomic"
 )
 
 const (
@@ -62,6 +64,20 @@ type Device struct {
 	PcieLinkWidth float64
 	PcieLink      *efml.LinkInfo
 	VirtMode      float64
+}
+
+var counter int32 = 0
+
+func addCounter() {
+	newVal := atomic.AddInt32(&counter, 1)
+	if newVal > 10 {
+		fmt.Println("metrics returns empty exceed 10 times, exit")
+		os.Exit(0)
+	}
+}
+
+func resetCounter() {
+	atomic.StoreInt32(&counter, 0)
 }
 
 func collectGCUMetrics() (*Metrics, error) {
@@ -448,6 +464,12 @@ func collectGCUMetrics() (*Metrics, error) {
 						DevSn:         devSn,
 					})
 		}
+	}
+
+	if len(metrics.Devices) == 0 {
+		addCounter()
+	} else {
+		resetCounter()
 	}
 	return metrics, nil
 }

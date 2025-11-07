@@ -16,7 +16,10 @@ Example:
 EOF
 }
 
-PKG_VER="1.0.0"
+if [ -f "../../../g_version.txt" ]; then
+    source ../../../g_version.txt
+fi
+PKG_VER=${GCU_EXPORTER_VERSION:-"0.0.0"}
 
 function clean_all() {
     make clean
@@ -37,8 +40,8 @@ function build_all() {
     mkdir -p ${PKG_DIR}
 
     cp -rf -L deployments/* ${PKG_DIR}
-    cp -rf LICENSE ${PKG_DIR}
-    mv gcu-exporter ${PKG_DIR}
+    cp -rf LICENSE.md ${PKG_DIR}
+    cp -rf gcu-exporter ${PKG_DIR}
 
     echo -e "\033[33mgcu-exporter released successfully.\033[0m"
 }
